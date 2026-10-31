@@ -1,0 +1,216 @@
+@import "tailwindcss";
+
+/* ---- 设计令牌：形状 / 排印 / 动效（颜色令牌由 theme.ts 按主题注入）---- */
+:root {
+  --radius-card: 12px;
+  --radius-control: 8px;
+  --radius-inline: 6px;
+  --fs-aux: 12px;
+  --fs-body: 13px;
+  --fs-emph: 15px;
+  --fs-title: 18px;
+  --dur-fast: 150ms;
+  --dur-panel: 200ms;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+  transition:
+    background-color var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+/* ---- 全局细滚动条（对齐 Termius 风格）---- */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--dim);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* 终端视口：常驻滚动条槽位防抖动 */
+.xterm .xterm-viewport {
+  background-color: transparent !important;
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+}
+
+/* ---- 语义组件（颜色全部来自主题变量）---- */
+.sinput {
+  width: 100%;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: var(--radius-control);
+  padding: 8px 10px;
+  font-size: var(--fs-body);
+  color: var(--text);
+  outline: none;
+  transition: border-color var(--dur-fast) ease;
+}
+.sinput:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.sinput::placeholder {
+  color: var(--faint);
+}
+.sbtn {
+  border-radius: var(--radius-control);
+  padding: 7px 12px;
+  font-size: var(--fs-body);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--text);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-fast) ease,
+    border-color var(--dur-fast) ease;
+}
+.sbtn:hover {
+  background: var(--hover);
+}
+.sbtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.sbtn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+}
+.sbtn-primary:hover {
+  filter: brightness(1.1);
+}
+.slabel {
+  display: block;
+  margin-bottom: 4px;
+  font-size: var(--fs-aux);
+  color: var(--dim);
+}
+input[type="radio"],
+input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+select.sinput option {
+  background: var(--panel);
+  color: var(--text);
+}
+
+.smodal-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 12, 16, 0.45);
+}
+.smodal {
+  max-height: 92%;
+  overflow-y: auto;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  padding: 22px;
+  box-shadow: 0 18px 50px rgba(10, 12, 16, 0.25);
+  animation: sshell-pop var(--dur-fast) ease-out;
+}
+
+/* 右侧滑出面板：200ms ease-out 滑入 */
+.sside {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 440px;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  box-shadow: -16px 0 40px rgba(10, 12, 16, 0.18);
+}
+.sside,
+.ssh-drawer {
+  animation: sshell-slide-in var(--dur-panel) ease-out;
+}
+.ssection {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 14px;
+  background: var(--panel);
+  margin-bottom: 12px;
+}
+.stitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 10px;
+}
+
+@keyframes sshell-slide-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes sshell-pop {
+  from {
+    transform: scale(0.97);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes sshell-progress {
+  from {
+    transform: translateX(-110%);
+  }
+  to {
+    transform: translateX(330%);
+  }
+}
+.sshell-progress {
+  animation: sshell-progress 1.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
