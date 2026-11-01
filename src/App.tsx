@@ -17,7 +17,14 @@ import HostForm from "./components/HostForm";
 import ImportDialog from "./components/ImportDialog";
 import { getSelection } from "./lib/selections";
 import { hostHue } from "./theme";
-import { recordStart, recordStop, deleteHost, type Host } from "./lib/ipc";
+import {
+  recordStart,
+  recordStop,
+  sessionLogStart,
+  sessionLogStop,
+  deleteHost,
+  type Host,
+} from "./lib/ipc";
 import { useHosts } from "./stores/hosts";
 
 interface Pane {
@@ -70,6 +77,7 @@ export default function App() {
   const sessionIds = useRef<Record<string, number>>({});
   const [, setSessionTick] = useState(0);
   const [recording, setRecording] = useState<Record<string, boolean>>({});
+  const [logging, setLogging] = useState<Record<string, string>>({});
   const [stealth, setStealth] = useState<Record<string, boolean>>({});
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -361,6 +369,30 @@ export default function App() {
     }
   };
 
+  const toggleSessionLog = () => {
+    const tab = activeTab;
+    const sid = activeSessionId;
+    if (!tab || tab.kind !== "terminal" || sid === null) {
+      return;
+    }
+    const current = logging[tab.key];
+    if (current) {
+      void sessionLogStop(sid).then(() => {
+        setLogging((prev) => {
+          const next = { ...prev };
+          delete next[tab.key];
+          return next;
+        });
+        setNotice(`会话日志已停止，文件：${current}`);
+      });
+    } else {
+      void sessionLogStart(sid).then((path) => {
+        setLogging((prev) => ({ ...prev, [tab.key]: path }));
+        setNotice(`会话日志记录中：${path}`);
+      });
+    }
+  };
+
   const loadLogs = () => {
     void import("./lib/ipc").then(({ logTail }) =>
       logTail(200).then(setLogLines).catch(() => setLogLines([])),
@@ -614,6 +646,17 @@ export default function App() {
                     }}
                   >
                     {stealth[activeTab.key] ? "退出隐身" : "隐身"}
+                  </button>
+                  <button
+                    className={`mr-1 shrink-0 rounded-md px-2 py-1 text-xs ${
+                      logging[activeTab.key]
+                        ? "bg-amber-600 text-white"
+                        : "bg-[var(--ws-btn)] text-[var(--ws-text)] hover:bg-[var(--ws-btn-hover)]"
+                    }`}
+                    title={logging[activeTab.key] ? `日志文件：${logging[activeTab.key]}` : "终端输出逐字落盘"}
+                    onClick={toggleSessionLog}
+                  >
+                    {logging[activeTab.key] ? "日志●" : "日志"}
                   </button>
                   <button
                     className={`mr-1 shrink-0 rounded-md px-2 py-1 text-xs ${

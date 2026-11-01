@@ -228,6 +228,14 @@ export function setWindowTheme(dark: boolean): Promise<void> {
   return invoke("set_window_theme", { dark });
 }
 
+export function sessionLogStart(sessionId: number): Promise<string> {
+  return invoke("session_log_start", { sessionId });
+}
+
+export function sessionLogStop(sessionId: number): Promise<void> {
+  return invoke("session_log_stop", { sessionId });
+}
+
 export interface ForwardRow {
   id: number;
   hostId: number;

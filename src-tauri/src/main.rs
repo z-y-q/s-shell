@@ -535,6 +535,59 @@ fn set_window_theme(window: tauri::WebviewWindow, dark: bool) -> Result<(), Stri
         .map_err(|e| e.to_string())
 }
 
+/// 会话日志：开启后终端输出逐字落盘到数据目录 session-logs/
+#[tauri::command]
+fn session_log_start(
+    sessions: State<'_, SessionManager>,
+    store: State<'_, Store>,
+    session_id: u64,
+) -> Result<String, String> {
+    let host_id = session_host_id(sessions.inner(), session_id)?;
+    let host_name = store.get(host_id)?.ok_or("主机不存在")?.name;
+    let mut dir = dirs::data_dir().ok_or("无法定位数据目录")?;
+    dir.push("s-shell");
+    dir.push("session-logs");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("创建日志目录失败：{e}"))?;
+    let safe = host_name.replace(['/', '\\', ':', ' '], "_");
+    let mut path = dir;
+    path.push(format!("{}-{safe}.log", chrono_like_stamp()));
+    let path_str = path.to_string_lossy().to_string();
+    sessions.log_start(session_id, path_str.clone())?;
+    Ok(path_str)
+}
+
+#[tauri::command]
+fn session_log_stop(sessions: State<'_, SessionManager>, session_id: u64) -> Result<(), String> {
+    sessions.log_stop(session_id)
+}
+
+fn session_host_id(sessions: &SessionManager, session_id: u64) -> Result<i64, String> {
+    sessions.host_id_of_session(session_id)
+}
+
+fn chrono_like_stamp() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("系统时间早于纪元")
+        .as_secs();
+    let days = secs / 86400;
+    let rem = secs % 86400;
+    let (h, m, s) = (rem / 3600, (rem % 3600) / 60, rem % 60);
+    // 平赖恩日期算法：纪元天数转公历
+    let z = days as i64 + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = doe / 365;
+    let doy = doe % 365;
+    let y = yoe + era * 400;
+    let leap = (doy == 60) as i64;
+    let mp = (doy + leap) * 5 - 3;
+    let month = mp / 153;
+    let day = (doy - (153 * mp + 2) / 5) + 1;
+    let year = y + (month <= 1) as i64;
+    format!("{year:04}{month:02}{day:02}-{h:02}{m:02}{s:02}")
+}
+
 #[tauri::command]
 fn vault_status() -> serde_json::Value {    serde_json::json!({
         "mode": if vault::mode() == vault::Mode::Master { "master" } else { "keyring" },
@@ -801,6 +854,8 @@ fn main() {
             local_remove,
             vault_status,
             set_window_theme,
+            session_log_start,
+            session_log_stop,
             forward_list_all,
             forward_toggle,
             forward_active_rules,

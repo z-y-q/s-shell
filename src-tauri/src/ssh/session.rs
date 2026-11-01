@@ -109,6 +109,8 @@ enum SessionCommand {
     Resize { cols: u32, rows: u32 },
     RecordStart { path: String },
     RecordStop,
+    LogStart { path: String },
+    LogStop,
     Close,
 }
 
@@ -182,6 +184,14 @@ impl SessionManager {
         self.dispatch(id, SessionCommand::RecordStop)
     }
 
+    pub fn log_start(&self, id: u64, path: String) -> Result<(), String> {
+        self.dispatch(id, SessionCommand::LogStart { path })
+    }
+
+    pub fn log_stop(&self, id: u64) -> Result<(), String> {
+        self.dispatch(id, SessionCommand::LogStop)
+    }
+
     pub fn close(&self, id: u64) -> Result<(), String> {
         let result = self.dispatch(id, SessionCommand::Close);
         self.sessions.lock().expect("会话表锁中毒").remove(&id);
@@ -198,6 +208,14 @@ impl SessionManager {
             .iter()
             .find(|(_, e)| e.host_id == host_id)
             .map(|(id, _)| *id)
+    }
+
+    pub fn host_id_of_session(&self, id: u64) -> Result<i64, String> {
+        let table = self.sessions.lock().expect("会话表锁中毒");
+        table
+            .get(&id)
+            .map(|e| e.host_id)
+            .ok_or_else(|| format!("会话 {id} 不存在"))
     }
 }
 
@@ -819,6 +837,7 @@ struct SessionState {
     agg: Vec<u8>,
     deadline: Option<tokio::time::Instant>,
     recorder: Option<Recorder>,
+    log_file: Option<std::fs::File>,
     dims: (u32, u32),
     recent: Vec<u8>,
     since_mark: u64,
@@ -838,6 +857,7 @@ impl SessionState {
             agg: Vec::with_capacity(8192),
             deadline: None,
             recorder: None,
+            log_file: None,
             dims: (0, 0),
             recent: Vec::with_capacity(50_000),
             since_mark: 0,
@@ -927,6 +947,11 @@ fn flush_agg(
 ) -> bool {
     if let Some(r) = state.recorder.as_mut() {
         r.output(&String::from_utf8_lossy(&state.agg));
+    }
+    if let Some(f) = state.log_file.as_mut() {
+        use std::io::Write as _;
+        let _ = f.write_all(&state.agg);
+        let _ = f.flush();
     }
     let taken = std::mem::take(&mut state.agg);
     state.push_recent(&taken);
@@ -1092,6 +1117,19 @@ async fn pump(
                         if let Some(r) = state.recorder.take() {
                             r.stop();
                         }
+                    }
+                    Some(SessionCommand::LogStart { path }) => {
+                        match std::fs::OpenOptions::new()
+                            .create(true)
+                            .append(true)
+                            .open(std::path::Path::new(&path))
+                        {
+                            Ok(f) => state.log_file = Some(f),
+                            Err(e) => println!("[s-shell] 开启会话日志失败：{e}"),
+                        }
+                    }
+                    Some(SessionCommand::LogStop) => {
+                        state.log_file = None;
                     }
                     Some(SessionCommand::Close) | None => return PumpOutcome::UserClose,
                 }
