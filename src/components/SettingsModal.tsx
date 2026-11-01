@@ -247,6 +247,11 @@ export default function SettingsModal({ onClose }: Props) {
           启用字体连字（"=&gt;" 与 "===" 等符号合并显示）
         </label>
 
+        <h3 className="mb-2 text-sm font-semibold text-[var(--text)]">密钥管理</h3>
+        <div className="mb-4">
+          <KeysSection />
+        </div>
+
         <h3 className="mb-2 text-sm font-semibold text-[var(--text)]">凭据库</h3>
         {vault?.mode === "keyring" ? (
           <p className="mb-4 text-xs text-[var(--dim)]">
