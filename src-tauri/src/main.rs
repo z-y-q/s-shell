@@ -162,6 +162,26 @@ fn check_port_free(_app: AppHandle, port: u16) -> Result<bool, String> {
     }
 }
 
+#[tauri::command]
+fn transfer_list() -> Result<Vec<serde_json::Value>, String> {
+    let rows: Vec<serde_json::Value> = sftp::transfers_snapshot()
+        .into_iter()
+        .map(|(task_id, kind, local, remote, status, transferred, total)| {
+            serde_json::json!({
+                "taskId": task_id, "kind": kind, "localPath": local, "remotePath": remote,
+                "status": status, "transferred": transferred, "total": total
+            })
+        })
+        .collect();
+    Ok(rows)
+}
+
+#[tauri::command]
+fn transfer_cancel(task_id: u64) -> Result<(), String> {
+    sftp::cancel_transfer(task_id);
+    Ok(())
+}
+
 /// 会话在线时立即按当前规则重启转发；离线时返回 0，规则在下次连接自动生效。
 #[tauri::command]
 async fn forward_apply(
@@ -876,6 +896,8 @@ fn main() {
             forward_toggle,
             forward_active_rules,
             check_port_free,
+            transfer_list,
+            transfer_cancel,
             vault_master_unlock,
             local::local_open,
             local::local_write,

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   localList,
   localMkdir,
@@ -11,8 +11,11 @@ import {
   sftpRemove,
   sftpRename,
   sftpUpload,
+  transferCancel,
+  transferList,
   type FsEntry,
   type SftpProgress,
+  type TransferRow,
 } from "../lib/ipc";
 
 interface Props {
@@ -53,19 +56,34 @@ export default function SftpPanel({ sessionId }: Props) {
   const [progress, setProgress] = useState<SftpProgress[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [transfers, setTransfers] = useState<TransferRow[]>([]);
 
-  const loadLocal = (target: string) => {
+  useEffect(() => {
+    const refresh = () => void transferList().then(setTransfers);
+    refresh();
+    const timer = window.setInterval(refresh, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const syncRef = useRef({ on: false, localRoot: "", remoteRoot: "" });
+  const [syncBrowse, setSyncBrowse] = useState(false);
+
+  const loadLocal = (target: string, viaSync = false) => {
     void localList(target)
       .then((list) => {
         setLocalEntries(list);
         setLocalPath(target);
         setSelectedLocal(null);
         window.localStorage.setItem("s-shell-local-base", target);
+        if (!viaSync && syncRef.current.on && target.startsWith(syncRef.current.localRoot)) {
+          const rel = target.slice(syncRef.current.localRoot.length);
+          void loadRemote((syncRef.current.remoteRoot.replace(/\/+$/, "") + rel) || "/", true);
+        }
       })
       .catch((err) => setError(String(err)));
   };
 
-  const loadRemote = (target: string) => {
+  const loadRemote = (target: string, viaSync = false) => {
     if (sessionId === null) {
       return;
     }
@@ -75,8 +93,22 @@ export default function SftpPanel({ sessionId }: Props) {
         setRemoteEntries(list);
         setRemotePath(target);
         setSelectedRemote(null);
+        if (!viaSync && syncRef.current.on && target.startsWith(syncRef.current.remoteRoot)) {
+          const rel = target.slice(syncRef.current.remoteRoot.length);
+          void loadLocal((syncRef.current.localRoot.replace(/\/+$/, "") + rel) || "/", true);
+        }
       })
       .catch((err) => setError(String(err)));
+  };
+
+  const toggleSyncBrowse = () => {
+    if (syncBrowse) {
+      setSyncBrowse(false);
+      syncRef.current = { on: false, localRoot: "", remoteRoot: "" };
+    } else {
+      setSyncBrowse(true);
+      syncRef.current = { on: true, localRoot: localPath, remoteRoot: remotePath };
+    }
   };
 
   useEffect(() => {
@@ -216,6 +248,10 @@ export default function SftpPanel({ sessionId }: Props) {
     <aside className="ssh-drawer flex h-full w-[720px] flex-col border-l border-[var(--ws-border)] bg-[var(--ws-bg)]">
       <div className="flex items-center justify-between px-3 py-2">
         <h2 className="text-sm font-semibold text-[var(--text)]">文件管理（SFTP 双栏）</h2>
+        <label className="flex items-center gap-1 text-xs text-[var(--dim)]" title="以开启时刻的两侧路径为根，目录跳转互相跟随">
+          <input type="checkbox" checked={syncBrowse} onChange={toggleSyncBrowse} />
+          同步浏览
+        </label>
         <label className="flex items-center gap-1 text-xs text-[var(--dim)]">
           <input type="checkbox" checked={resume} onChange={(e) => setResume(e.target.checked)} />
           断点续传
@@ -287,6 +323,50 @@ export default function SftpPanel({ sessionId }: Props) {
           </div>
           <div className="border-t border-[var(--ws-border)] px-2 py-1 text-xs text-[var(--dim)]">
             单击选中；双击目录进入；拖拽本地文件到右侧上传
+          </div>
+
+          {/* 传输队列 */}
+          <div className="border-t border-[var(--ws-border)]">
+            <div className="px-2 pt-1 text-xs font-semibold text-[var(--ws-text)]">传输队列</div>
+            <div className="max-h-40 overflow-y-auto px-2 pb-2">
+              {transfers.length === 0 && (
+                <p className="py-1 text-xs text-[var(--faint)]">暂无传输任务</p>
+              )}
+              {transfers.map((t) => {
+                const pct = t.total > 0 ? Math.min(100, Math.round((t.transferred / t.total) * 100)) : 0;
+                return (
+                  <div key={t.taskId} className="border-b border-[var(--ws-border)] py-1.5 last:border-none">
+                    <div className="flex items-center gap-2">
+                      <span className="shrink-0 text-xs text-[var(--dim)]">
+                        {t.kind === "upload" ? "上传" : "下载"}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-xs text-[var(--text)]" title={t.localPath}>
+                        {t.kind === "upload" ? t.localPath : t.remotePath}
+                      </span>
+                      {t.status === "running" && (
+                        <button
+                          className="shrink-0 rounded px-1 text-xs text-red-400 hover:text-red-300"
+                          onClick={() => void transferCancel(t.taskId)}
+                        >
+                          取消
+                        </button>
+                      )}
+                    </div>
+                    <div className="mt-1 flex items-center gap-2">
+                      <div className="h-1 flex-1 overflow-hidden rounded-full bg-[var(--ws-btn)]">
+                        <div
+                          className="h-full rounded-full bg-[var(--accent)] transition-[width]"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      <span className="shrink-0 text-xs text-[var(--dim)]">
+                        {t.status === "running" ? `${pct}%` : t.status === "done" ? "完成" : t.status === "cancelled" ? "已取消" : "失败"}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
 

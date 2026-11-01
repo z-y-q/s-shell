@@ -1,4 +1,6 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -223,6 +225,10 @@ impl Progress {
     fn add(&self, n: u64) {
         let mut s = self.state.lock().expect("进度锁中毒");
         s.0 += n;
+        if let Some(rec) = transfer_table().lock().expect("传输表锁中毒").get(&self.task_id) {
+            *rec.transferred.lock().expect("计数锁中毒") = s.2 + s.0;
+            *rec.total.lock().expect("总数锁中毒") = self.total;
+        }
         if s.0 - s.1 >= CHUNK as u64 || s.2 + s.0 >= self.total {
             s.1 = s.0;
             if let Some(app) = &self.app {
@@ -542,21 +548,123 @@ pub enum TransferKind {
     Download { remote: String, local: String, resume: bool, limit_kbps: u64 },
 }
 
+/// 传输队列登记表：任务标识 → 元数据与取消位（界面可看进度、可取消）
+pub struct TransferRecord {
+    pub kind: String,
+    pub local_path: String,
+    pub remote_path: String,
+    pub status: Arc<Mutex<String>>,
+    pub cancel: Arc<AtomicBool>,
+    pub total: Mutex<u64>,
+    pub transferred: Mutex<u64>,
+}
+
+static TRANSFERS: std::sync::OnceLock<std::sync::Mutex<HashMap<u64, TransferRecord>>> =
+    std::sync::OnceLock::new();
+
+fn transfer_table() -> &'static std::sync::Mutex<HashMap<u64, TransferRecord>> {
+    TRANSFERS.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+
+fn register_transfer(task_id: u64, kind: &str, local: &str, remote: &str, cancel: Arc<AtomicBool>) {
+    transfer_table().lock().expect("传输表锁中毒").insert(
+        task_id,
+        TransferRecord {
+            kind: kind.into(),
+            local_path: local.into(),
+            remote_path: remote.into(),
+            status: Arc::new(Mutex::new("running".into())),
+            cancel,
+            total: Mutex::new(0),
+            transferred: Mutex::new(0),
+        },
+    );
+}
+
+fn finish_transfer(task_id: u64, status: &str) {
+    if let Some(rec) = transfer_table().lock().expect("传输表锁中毒").get(&task_id) {
+        *rec.status.lock().expect("状态锁中毒") = status.into();
+    }
+}
+
+pub fn cancel_transfer(task_id: u64) {
+    if let Some(rec) = transfer_table().lock().expect("传输表锁中毒").get(&task_id) {
+        rec.cancel.store(true, Ordering::Relaxed);
+    }
+}
+
+pub fn transfers_snapshot() -> Vec<(u64, String, String, String, String, u64, u64)> {
+    let table = transfer_table().lock().expect("传输表锁中毒");
+    let mut rows: Vec<_> = table
+        .iter()
+        .map(|(id, r)| {
+            (
+                *id,
+                r.kind.clone(),
+                r.local_path.clone(),
+                r.remote_path.clone(),
+                r.status.lock().expect("状态锁中毒").clone(),
+                *r.transferred.lock().expect("计数锁中毒"),
+                *r.total.lock().expect("总数锁中毒"),
+            )
+        })
+        .collect();
+    rows.sort_by_key(|(id, ..)| std::cmp::Reverse(*id));
+    rows
+}
+
 pub async fn run_transfer_task(
     handle: Arc<Handle<ClientHandler>>,
     kind: TransferKind,
     app: AppHandle,
     task_id: u64,
 ) {
-    let result = match kind {
+    let (kind_str, local, remote, resume, limit_kbps) = match &kind {
         TransferKind::Upload { local, remote, resume, limit_kbps } => {
-            transfer_upload(&handle, &local, &remote, Some(app.clone()), task_id, resume, limit_kbps)
-                .await
+            ("upload", local.clone(), remote.clone(), *resume, *limit_kbps)
         }
         TransferKind::Download { remote, local, resume, limit_kbps } => {
-            transfer_download(&handle, &remote, &local, Some(app.clone()), task_id, resume, limit_kbps)
-                .await
+            ("download", local.clone(), remote.clone(), *resume, *limit_kbps)
         }
     };
+    let cancel = Arc::new(AtomicBool::new(false));
+    register_transfer(task_id, &kind_str, &local, &remote, cancel.clone());
+
+    let wait_cancel = async {
+        while !cancel.load(Ordering::Relaxed) {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    };
+    let task: std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send>> =
+        match kind_str {
+            "upload" => Box::pin(transfer_upload(
+                &handle,
+                &local,
+                &remote,
+                Some(app.clone()),
+                task_id,
+                resume,
+                limit_kbps,
+            )),
+            _ => Box::pin(transfer_download(
+                &handle,
+                &remote,
+                &local,
+                Some(app.clone()),
+                task_id,
+                resume,
+                limit_kbps,
+            )),
+        };
+    let result = tokio::select! {
+        r = task => r,
+        _ = wait_cancel => Err("已取消".into()),
+    };
+    let status = match &result {
+        Ok(_) => "done",
+        Err(e) if e.contains("已取消") => "cancelled",
+        Err(_) => "error",
+    };
+    finish_transfer(task_id, status);
     emit_done(&app, task_id, result.err());
 }

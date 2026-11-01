@@ -264,6 +264,24 @@ export function checkPortFree(port: number): Promise<boolean> {
   return invoke("check_port_free", { port });
 }
 
+export interface TransferRow {
+  taskId: number;
+  kind: string;
+  localPath: string;
+  remotePath: string;
+  status: string;
+  transferred: number;
+  total: number;
+}
+
+export function transferList(): Promise<TransferRow[]> {
+  return invoke("transfer_list");
+}
+
+export function transferCancel(taskId: number): Promise<void> {
+  return invoke("transfer_cancel", { taskId });
+}
+
 export function onSessionClosed(cb: (sessionId: number) => void): Promise<() => void> {
   return listen<number>("session-closed", (event) => cb(event.payload));
 }
