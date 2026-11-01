@@ -149,6 +149,18 @@ push：hosts 全量 + settings 全量 → WebDAV `s-shell-config.json`（凭据�
 - 动效：面板 `sshell-slide-in` 200ms、弹窗 `sshell-pop` 150ms、`prefers-reduced-motion` 全局降级
 - 主题切换：界面 CSS 变量即时生效；已开终端经 `sshell-theme` 事件实时换配色，无需重开
 
+
+## 功能扩展（0.0.2）
+
+- **隧道中心**：`forward_list_all/forward_toggle/forward_active_rules/check_port_free`；`ForwardManager::active_rule_ids` 供状态灯，启停时对在线会话整组重绑
+- **会话日志**：`SessionCommand::LogStart/LogStop` 挂 `SessionState.log_file`，`flush_agg` 同步写盘（session-logs/ 目录）
+- **触发器**：`triggers` 表 → 会话启动时按主机过滤编译正则 → pump 解码后扫描，命中回包走 `data_bytes`，冷却 2 秒
+- **片段升级**：snippets 表加 send_enter/auto_run/host_id 列；自动执行在前端 `onSessionReady` 按 host 过滤依序写入
+- **主机分组**：hosts 加 group_name 列（ensure_column + 回填），前端按组分区渲染
+- **传输队列**：sftp.rs `TRANSFERS` OnceLock 登记表，`run_transfer_task` 用 `tokio::select!` 与取消位竞争，`transfer_list/transfer_cancel` 命令
+- **密钥管理器**：ssh-keygen 生成 ed25519 到 ~/.ssh/s-shell-keys/，部署经 `exec_command` 追加 authorized_keys（grep -qxF 防重复）
+- **命令块**：xterm onData 回车分块（键入字符剔除转义序列累积），`lib/blocks.ts` 注册表 + BlocksDrawer 跳转/复制
+
 ## 已踩坑清单（防回归）
 
 1. encoding_rs `decode_to_string` 以 String 容量为上限且不扩容——必须先 `max_utf8_buffer_length` 预留
