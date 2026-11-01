@@ -22,6 +22,7 @@ import {
   type Host,
 } from "../lib/ipc";
 import { dropSelection, setSelection } from "../lib/selections";
+import { dropBlocks, registerTerm, updateBlocks, type CommandBlock } from "../lib/blocks";
 
 interface Props {
   host?: Host | null;
@@ -54,6 +55,9 @@ export default function TerminalView({
   stealthRef.current = stealth ?? false;
   const [initError, setInitError] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(true);
+  const blocksRef = useRef<CommandBlock[]>([]);
+  const pendingRef = useRef<{ cmd: string; start: number } | null>(null);
+  const cmdBufRef = useRef("");
 
   useEffect(() => {
     let disposed = false;
@@ -87,6 +91,21 @@ export default function TerminalView({
         term.options.theme = pal as Record<string, string>;
       };
       window.addEventListener("sshell-theme", onThemeChange);
+      registerTerm(
+        tabKey,
+        (line) => term.scrollToLine(line),
+        (block) => {
+          const buffer = term.buffer.active;
+          const lines: string[] = [];
+          for (let i = block.start; i <= block.end; i += 1) {
+            const row = buffer.getLine(i);
+            if (row) {
+              lines.push(row.translateToString(true));
+            }
+          }
+          return lines.join("\n");
+        },
+      );
       termRef.current = term;
 
       const fit = new FitAddon();
@@ -185,6 +204,25 @@ export default function TerminalView({
         }
       }, 10_000);
       term.onData((data) => {
+        // 命令块：回车切分；键入字符累积成命令文本（剔除转义序列）
+        if (data === "\r" || data === "\n") {
+          const abs = term.buffer.active.cursorY + term.buffer.active.viewportY;
+          const cmd = cmdBufRef.current.replace(/\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*\x07/g, "").trim();
+          if (pendingRef.current !== null) {
+            blocksRef.current.push({
+              cmd: pendingRef.current.cmd + cmd,
+              start: pendingRef.current.start,
+              end: Math.max(pendingRef.current.start, abs - 1),
+            });
+            updateBlocks(tabKey, blocksRef.current);
+            pendingRef.current = { cmd: "", start: abs };
+          } else {
+            pendingRef.current = { cmd, start: abs };
+          }
+          cmdBufRef.current = "";
+        } else if (!data.startsWith("\x1b") && data >= " ") {
+          cmdBufRef.current += data;
+        }
         if (zActive) {
           // zmodem 传输进行中，键盘交给协议端点处理，不直写远端
           return;
@@ -390,6 +428,7 @@ export default function TerminalView({
         disposeClosed?.();
         fileInputRef.current?.removeEventListener("change", onFileChosen);
         window.removeEventListener("sshell-theme", onThemeChange);
+        dropBlocks(tabKey);
         container.removeEventListener("copy", onCopyBlock, true);
         dropSelection(tabKey);
         const sessionId = sessionRef.current;

@@ -11,6 +11,7 @@ import CommandPalette from "./components/CommandPalette";
 import McpApprovals from "./components/McpApprovals";
 import KnownHostsView from "./components/KnownHostsView";
 import TunnelCenter from "./components/TunnelCenter";
+import BlocksDrawer from "./components/BlocksDrawer";
 import SnippetsView from "./components/SnippetsView";
 import AiDrawer from "./components/AiDrawer";
 import HostForm from "./components/HostForm";
@@ -43,7 +44,7 @@ interface Tab {
 }
 
 type View = "home" | "logs" | "term" | "known" | "snippets" | "tunnels";
-type RightPanel = "ai" | "sftp" | null;
+type RightPanel = "ai" | "sftp" | "blocks" | null;
 
 export default function App() {
   const { hosts, refresh, loaded } = useHosts();
@@ -705,6 +706,17 @@ export default function App() {
                 本地
               </button>
               <button
+                className={`mr-1 shrink-0 rounded-md px-2 py-1 text-xs ${
+                  rightPanel === "blocks"
+                    ? "bg-[var(--accent)] text-white"
+                    : "bg-[var(--ws-btn)] text-[var(--ws-text)] hover:bg-[var(--ws-btn-hover)]"
+                }`}
+                title="本标签的命令块：跳转定位、复制输出"
+                onClick={() => setRightPanel(rightPanel === "blocks" ? null : "blocks")}
+              >
+                块
+              </button>
+              <button
                 className={`shrink-0 rounded-md px-2 py-1 text-xs ${
                   rightPanel === "sftp" ? "bg-[var(--accent)] text-white" : "bg-[var(--ws-btn)] text-[var(--ws-text)] hover:bg-[var(--ws-btn-hover)]"
                 }`}
@@ -830,6 +842,13 @@ export default function App() {
           getSelection={() => (activeTab && activePaneKey ? getSelection(activePaneKey) : "")}
           onNotice={setNotice}
         />
+      </div>
+
+      <div
+        className="absolute right-0 top-10 bottom-0 z-30 flex-col"
+        style={{ display: view === "term" && rightPanel === "blocks" ? "flex" : "none" }}
+      >
+        <BlocksDrawer paneKey={activePaneKey ?? ""} onClose={() => setRightPanel(null)} />
       </div>
 
       <div
