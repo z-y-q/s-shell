@@ -23,7 +23,13 @@ export default function TunnelCenter() {
   const [rules, setRules] = useState<ForwardRow[]>([]);
   const [active, setActive] = useState<number[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<{
+    hostId: string;
+    kind: "local" | "remote" | "dynamic";
+    listenPort: string;
+    targetHost: string;
+    targetPort: string;
+  }>({
     hostId: "",
     kind: "local",
     listenPort: "",
@@ -128,7 +134,7 @@ export default function TunnelCenter() {
           <select
             className="sinput w-36"
             value={form.kind}
-            onChange={(e) => setForm({ ...form, kind: e.target.value })}
+            onChange={(e) => setForm({ ...form, kind: e.target.value as "local" | "remote" | "dynamic" })}
           >
             <option value="local">本地 → 远端</option>
             <option value="remote">远端 → 本地</option>
