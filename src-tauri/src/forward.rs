@@ -102,6 +102,16 @@ impl ForwardManager {
         }
     }
 
+    /// 当前正在监听的规则编号（状态灯用）
+    pub fn active_rule_ids(&self) -> Vec<i64> {
+        self.runtimes
+            .lock()
+            .expect("转发表锁中毒")
+            .values()
+            .map(|r| r.rule_id)
+            .collect()
+    }
+
     pub fn stop_session(&self, session_id: u64) {
         let ids: Vec<u64> = {
             let table = self.runtimes.lock().expect("转发表锁中毒");

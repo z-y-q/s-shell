@@ -1,15 +1,19 @@
 import type { Host } from "../lib/ipc";
 
 interface Props {
-  view: "home" | "logs" | "term" | "known" | "snippets";
-  onNav: (view: "home" | "logs" | "term" | "known" | "snippets") => void;
+  view: "home" | "logs" | "term" | "known" | "snippets" | "tunnels";
+  onNav: (view: "home" | "logs" | "term" | "known" | "snippets" | "tunnels") => void;
   onOpenSettings: () => void;
   termCount: number;
   collapsed: boolean;
   onToggleCollapsed: () => void;
 }
 
-function NavIcon({ kind }: { kind: "hosts" | "logs" | "settings" | "term" | "collapse" | "expand" }) {
+function NavIcon({
+  kind,
+}: {
+  kind: "hosts" | "logs" | "settings" | "term" | "collapse" | "expand" | "tunnel";
+}) {
   const common = {
     width: 16,
     height: 16,
@@ -46,6 +50,15 @@ function NavIcon({ kind }: { kind: "hosts" | "logs" | "settings" | "term" | "col
       </svg>
     );
   }
+  if (kind === "tunnel") {
+    return (
+      <svg {...common}>
+        <path d="M4 8h6M14 8h6M4 16h6M14 16h6" />
+        <circle cx="12" cy="8" r="2.2" />
+        <circle cx="12" cy="16" r="2.2" />
+      </svg>
+    );
+  }
   if (kind === "collapse") {
     return (
       <svg {...common}>
@@ -76,8 +89,13 @@ export default function Sidebar({
   collapsed,
   onToggleCollapsed,
 }: Props) {
-  const items: Array<{ id: "home" | "logs" | "term" | "known" | "snippets"; label: string; kind: "hosts" | "logs" | "term" }> = [
+  const items: Array<{
+    id: "home" | "logs" | "term" | "known" | "snippets" | "tunnels";
+    label: string;
+    kind: "hosts" | "logs" | "term" | "tunnel";
+  }> = [
     { id: "home", label: "主机", kind: "hosts" },
+    { id: "tunnels", label: "隧道", kind: "tunnel" },
     { id: "snippets", label: "片段", kind: "hosts" },
     { id: "known", label: "已知主机", kind: "hosts" },
   ];

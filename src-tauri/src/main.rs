@@ -110,6 +110,58 @@ fn forward_delete(store: State<Store>, id: i64) -> Result<(), String> {
     store.forward_delete(id)
 }
 
+#[tauri::command]
+fn forward_list_all(store: State<Store>) -> Result<Vec<store::ForwardRow>, String> {
+    store.forward_list_all()
+}
+
+/// 启停规则：会话在线立即重绑该主机全部规则，离线时仅落库等待下次连接生效
+#[tauri::command]
+async fn forward_toggle(
+    app: AppHandle,
+    store: State<'_, Store>,
+    sessions: State<'_, SessionManager>,
+    id: i64,
+    enabled: bool,
+) -> Result<(), String> {
+    store.forward_set_enabled(id, enabled)?;
+    let Some(host_id) = store.forward_host_id(id)? else {
+        return Ok(());
+    };
+    let Some(session_id) = sessions.session_for_host(host_id) else {
+        return Ok(());
+    };
+    let handle = sessions.handle_of(session_id)?;
+    let rules = store.forward_list(host_id)?;
+    let fm = app.state::<ForwardManager>();
+    for rule in &rules {
+        fm.stop_rule(rule.id);
+    }
+    for rule in rules.iter().filter(|r| r.enabled) {
+        fm.start_rule(&app, session_id, handle.clone(), rule.clone())
+            .await
+            .ok();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn forward_active_rules(fm: State<'_, ForwardManager>) -> Result<Vec<i64>, String> {
+    Ok(fm.active_rule_ids())
+}
+
+/// 本机端口占用探测：true = 可监听
+#[tauri::command]
+fn check_port_free(_app: AppHandle, port: u16) -> Result<bool, String> {
+    match std::net::TcpListener::bind(("127.0.0.1", port)) {
+        Ok(listener) => {
+            drop(listener);
+            Ok(true)
+        }
+        Err(_) => Ok(false),
+    }
+}
+
 /// 会话在线时立即按当前规则重启转发；离线时返回 0，规则在下次连接自动生效。
 #[tauri::command]
 async fn forward_apply(
@@ -749,6 +801,10 @@ fn main() {
             local_remove,
             vault_status,
             set_window_theme,
+            forward_list_all,
+            forward_toggle,
+            forward_active_rules,
+            check_port_free,
             vault_master_unlock,
             local::local_open,
             local::local_write,

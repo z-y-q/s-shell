@@ -78,6 +78,14 @@ pub struct KnownHostRow {
     pub first_seen: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForwardRow {
+    #[serde(flatten)]
+    pub forward: Forward,
+    pub host_name: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Snippet {
@@ -424,6 +432,58 @@ impl Store {
     }
 
     // ---- 转发规则 ----
+
+    /// 全局规则列表（隧道中心用），附主机名
+    pub fn forward_list_all(&self) -> Result<Vec<ForwardRow>, String> {
+        let conn = self.conn.lock().expect("数据库锁中毒");
+        let mut stmt = conn
+            .prepare(
+                "SELECT f.id, f.host_id, f.kind, f.listen_port, f.target_host, f.target_port, \
+                        f.enabled, COALESCE(h.name, '已删除主机') \
+                 FROM forwards f LEFT JOIN hosts h ON h.id = f.host_id \
+                 ORDER BY f.listen_port",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(ForwardRow {
+                    forward: Forward {
+                        id: row.get(0)?,
+                        host_id: row.get(1)?,
+                        kind: row.get(2)?,
+                        listen_port: row.get(3)?,
+                        target_host: row.get(4)?,
+                        target_port: row.get(5)?,
+                        enabled: row.get::<_, i64>(6)? != 0,
+                    },
+                    host_name: row.get(7)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+    }
+
+    pub fn forward_set_enabled(&self, id: i64, enabled: bool) -> Result<(), String> {
+        let conn = self.conn.lock().expect("数据库锁中毒");
+        conn.execute(
+            "UPDATE forwards SET enabled=?1 WHERE id=?2",
+            [if enabled { 1 } else { 0 }, id],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn forward_host_id(&self, id: i64) -> Result<Option<i64>, String> {
+        let conn = self.conn.lock().expect("数据库锁中毒");
+        let mut stmt = conn
+            .prepare("SELECT host_id FROM forwards WHERE id=?1")
+            .map_err(|e| e.to_string())?;
+        let mut rows = stmt.query([id]).map_err(|e| e.to_string())?;
+        match rows.next().map_err(|e| e.to_string())? {
+            Some(row) => row.get(0).map_err(|e| e.to_string()).map(Some),
+            None => Ok(None),
+        }
+    }
 
     pub fn forward_list(&self, host_id: i64) -> Result<Vec<Forward>, String> {
         let conn = self.conn.lock().expect("数据库锁中毒");

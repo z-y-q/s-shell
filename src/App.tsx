@@ -10,6 +10,7 @@ import ForwardPanel from "./components/ForwardPanel";
 import CommandPalette from "./components/CommandPalette";
 import McpApprovals from "./components/McpApprovals";
 import KnownHostsView from "./components/KnownHostsView";
+import TunnelCenter from "./components/TunnelCenter";
 import SnippetsView from "./components/SnippetsView";
 import AiDrawer from "./components/AiDrawer";
 import HostForm from "./components/HostForm";
@@ -34,7 +35,7 @@ interface Tab {
   broadcast: boolean;
 }
 
-type View = "home" | "logs" | "term" | "known" | "snippets";
+type View = "home" | "logs" | "term" | "known" | "snippets" | "tunnels";
 type RightPanel = "ai" | "sftp" | null;
 
 export default function App() {
@@ -504,6 +505,12 @@ export default function App() {
         {view === "known" && (
           <div className="absolute inset-0 flex flex-col">
             <KnownHostsView />
+          </div>
+        )}
+
+        {view === "tunnels" && (
+          <div className="absolute inset-0 flex flex-col">
+            <TunnelCenter />
           </div>
         )}
 

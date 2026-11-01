@@ -228,6 +228,33 @@ export function setWindowTheme(dark: boolean): Promise<void> {
   return invoke("set_window_theme", { dark });
 }
 
+export interface ForwardRow {
+  id: number;
+  hostId: number;
+  hostName: string;
+  kind: string;
+  listenPort: number;
+  targetHost: string;
+  targetPort: number;
+  enabled: boolean;
+}
+
+export function forwardListAll(): Promise<ForwardRow[]> {
+  return invoke("forward_list_all");
+}
+
+export function forwardToggle(id: number, enabled: boolean): Promise<void> {
+  return invoke("forward_toggle", { id, enabled });
+}
+
+export function forwardActiveRules(): Promise<number[]> {
+  return invoke("forward_active_rules");
+}
+
+export function checkPortFree(port: number): Promise<boolean> {
+  return invoke("check_port_free", { port });
+}
+
 export function onSessionClosed(cb: (sessionId: number) => void): Promise<() => void> {
   return listen<number>("session-closed", (event) => cb(event.payload));
 }
