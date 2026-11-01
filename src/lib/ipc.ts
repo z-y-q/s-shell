@@ -412,6 +412,31 @@ export interface Snippet {
   id: number;
   name: string;
   content: string;
+  sendEnter: boolean;
+  autoRun: boolean;
+  hostId: number | null;
+}
+
+export interface Trigger {
+  id: number;
+  hostId: number | null;
+  pattern: string;
+  payload: string;
+}
+
+export function triggerList(): Promise<Trigger[]> {
+  return invoke("trigger_list");
+}
+
+export function triggerSave(
+  input: { hostId: number | null; pattern: string; payload: string },
+  id: number | null,
+): Promise<number> {
+  return invoke("trigger_save", { id, trigger: input });
+}
+
+export function triggerDelete(id: number): Promise<void> {
+  return invoke("trigger_delete", { id });
 }
 
 export function snippetList(): Promise<Snippet[]> {
@@ -419,7 +444,7 @@ export function snippetList(): Promise<Snippet[]> {
 }
 
 export function snippetSave(
-  input: { name: string; content: string },
+  input: { name: string; content: string; sendEnter: boolean; autoRun: boolean; hostId: number | null },
   id: number | null,
 ): Promise<number> {
   return invoke("snippet_save", { id, snippet: input });

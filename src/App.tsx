@@ -550,11 +550,15 @@ export default function App() {
           <div className="absolute inset-0 flex flex-col">
             <SnippetsView
               hasSession={activeSessionId !== null}
-              onSendToTerminal={(content) => {
+              hosts={hosts}
+              onSendToTerminal={(content, sendEnter) => {
                 const sid = activeSessionId;
                 if (sid !== null) {
                   void import("./lib/ipc").then(({ sessionWrite }) =>
-                    sessionWrite(sid, new TextEncoder().encode(content)),
+                    sessionWrite(
+                      sid,
+                      new TextEncoder().encode(content + (sendEnter ? "\n" : "")),
+                    ),
                   );
                 }
               }}
@@ -760,6 +764,28 @@ export default function App() {
                             stealth={stealth[tab.key] ?? false}
                             onSessionReady={(sid) => {
                               sessionIds.current[pane.key] = sid;
+                              // 自动执行片段：匹配全部主机或本机，按序发送
+                              const hostId = tab.host?.id ?? null;
+                              void import("./lib/ipc").then(
+                                ({ snippetList, sessionWrite }) => {
+                                  void snippetList().then((snippets) =>
+                                    snippets
+                                      .filter(
+                                        (s) =>
+                                          s.autoRun &&
+                                          (s.hostId === null || s.hostId === hostId),
+                                      )
+                                      .forEach((s) =>
+                                        void sessionWrite(
+                                          sid,
+                                          new TextEncoder().encode(
+                                            s.content + (s.sendEnter ? "\n" : ""),
+                                          ),
+                                        ),
+                                      ),
+                                  );
+                                },
+                              );
                               if (pane.key === activePaneKey) {
                                 setSessionTick((v) => v + 1);
                               }

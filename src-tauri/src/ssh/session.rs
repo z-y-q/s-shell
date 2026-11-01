@@ -831,9 +831,17 @@ pub async fn open(
     Ok(id)
 }
 
+/// 已编译的输出触发器：正则命中后在冷却期内自动回包
+struct Trigger {
+    re: regex::Regex,
+    payload: String,
+    last_fire: Option<std::time::Instant>,
+}
+
 struct SessionState {
     decoder: codec::Decoder,
     zmodem: ZmodemDetector,
+    triggers: Vec<Trigger>,
     agg: Vec<u8>,
     deadline: Option<tokio::time::Instant>,
     recorder: Option<Recorder>,
@@ -854,6 +862,7 @@ impl SessionState {
         SessionState {
             decoder: codec::Decoder::new(encoding),
             zmodem: ZmodemDetector::new(),
+            triggers: Vec::new(),
             agg: Vec::with_capacity(8192),
             deadline: None,
             recorder: None,
@@ -1061,6 +1070,22 @@ async fn pump(
                 if let Some(cwd) = extract_cwd(&text) {
                     cwds.lock().expect("目录表锁中毒").insert(id, cwd);
                 }
+                // 触发器扫描：正则命中自动回包，冷却 2 秒防连发
+                if !state.triggers.is_empty() {
+                    let now = std::time::Instant::now();
+                    for tr in state.triggers.iter_mut() {
+                        if tr.re.is_match(&text)
+                            && tr.last_fire.map_or(true, |t| {
+                                now.duration_since(t) >= std::time::Duration::from_secs(2)
+                            })
+                        {
+                            tr.last_fire = Some(now);
+                            let mut payload = tr.payload.clone().into_bytes();
+                            payload.push(b'\n');
+                            let _ = ch_write.data_bytes(payload).await;
+                        }
+                    }
+                }
                 state.agg.extend_from_slice(text.as_bytes());
                 let now = tokio::time::Instant::now();
                 // 交互优先：距上次冲刷超过窗口（或首次输出）→ 立即冲刷，击键回显零排队；
@@ -1156,6 +1181,25 @@ async fn session_task(
         app.state::<Store>().setting_get("ai_autosummary").ok().flatten().as_deref(),
         Some("1")
     );
+    // 触发器：全局 + 绑定本主机的正则规则，编译失败的跳过
+    state.triggers = app
+        .state::<Store>()
+        .trigger_list()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|t| t.host_id.is_none() || t.host_id == Some(host.id))
+        .filter_map(|t| match regex::Regex::new(&t.pattern) {
+            Ok(re) => Some(Trigger {
+                re,
+                payload: t.payload,
+                last_fire: None,
+            }),
+            Err(e) => {
+                println!("[s-shell] 触发器正则编译失败：{e}");
+                None
+            }
+        })
+        .collect();
     if host.shell_integration {
         state.suppress_hook_until = Some(tokio::time::Instant::now() + Duration::from_secs(3));
     }

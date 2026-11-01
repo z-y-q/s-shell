@@ -525,6 +525,21 @@ fn snippet_delete(store: State<Store>, id: i64) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn trigger_list(store: State<Store>) -> Result<Vec<store::Trigger>, String> {
+    store.trigger_list()
+}
+
+#[tauri::command]
+fn trigger_save(store: State<Store>, id: Option<i64>, trigger: store::Trigger) -> Result<i64, String> {
+    store.trigger_save(id, &trigger)
+}
+
+#[tauri::command]
+fn trigger_delete(store: State<Store>, id: i64) -> Result<(), String> {
+    store.trigger_delete(id)
+}
+
+#[tauri::command]
 fn set_window_theme(window: tauri::WebviewWindow, dark: bool) -> Result<(), String> {
     window
         .set_theme(Some(if dark {
@@ -868,6 +883,9 @@ fn main() {
             known_hosts_list,
             known_hosts_delete,
             snippet_list,
+            trigger_list,
+            trigger_save,
+            trigger_delete,
             snippet_save,
             snippet_delete,
             sync_push,

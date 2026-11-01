@@ -88,11 +88,28 @@ pub struct ForwardRow {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct Trigger {
+    #[serde(default)]
+    pub id: i64,
+    #[serde(default)]
+    pub host_id: Option<i64>,
+    pub pattern: String,
+    pub payload: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Snippet {
     #[serde(default)]
     pub id: i64,
     pub name: String,
     pub content: String,
+    #[serde(default = "default_true")]
+    pub send_enter: bool,
+    #[serde(default)]
+    pub auto_run: bool,
+    #[serde(default)]
+    pub host_id: Option<i64>,
 }
 
 const HOST_COLS: &str =
@@ -193,8 +210,21 @@ impl Store {
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL UNIQUE,
                 content TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS triggers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                host_id INTEGER,
+                pattern TEXT NOT NULL,
+                payload TEXT NOT NULL
             );",
         )?;
+        ensure_column(conn, "snippets", "send_enter", "INTEGER");
+        ensure_column(conn, "snippets", "auto_run", "INTEGER");
+        ensure_column(conn, "snippets", "host_id", "INTEGER");
+        conn.execute("UPDATE snippets SET send_enter=1 WHERE send_enter IS NULL", [])
+            .expect("回填 snippets.send_enter 默认值失败");
+        conn.execute("UPDATE snippets SET auto_run=0 WHERE auto_run IS NULL", [])
+            .expect("回填 snippets.auto_run 默认值失败");
         ensure_column(conn, "hosts", "jump_host_id", "INTEGER");
         ensure_column(conn, "hosts", "shell_integration", "INTEGER");
         ensure_column(conn, "hosts", "cert_path", "TEXT");
@@ -606,7 +636,10 @@ impl Store {
     pub fn snippet_list(&self) -> Result<Vec<Snippet>, String> {
         let conn = self.conn.lock().expect("数据库锁中毒");
         let mut stmt = conn
-            .prepare("SELECT id, name, content FROM snippets ORDER BY name")
+            .prepare(
+                "SELECT id, name, content, send_enter, auto_run, host_id \
+                 FROM snippets ORDER BY name",
+            )
             .map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map([], |row| {
@@ -614,6 +647,9 @@ impl Store {
                     id: row.get(0)?,
                     name: row.get(1)?,
                     content: row.get(2)?,
+                    send_enter: row.get::<_, i64>(3).unwrap_or(1) != 0,
+                    auto_run: row.get::<_, i64>(4).unwrap_or(0) != 0,
+                    host_id: row.get(5).ok(),
                 })
             })
             .map_err(|e| e.to_string())?;
@@ -626,8 +662,15 @@ impl Store {
             Some(id) => {
                 let n = conn
                     .execute(
-                        "UPDATE snippets SET name=?1, content=?2 WHERE id=?3",
-                        params![s.name, s.content, id],
+                        "UPDATE snippets SET name=?1, content=?2, send_enter=?3, auto_run=?4, host_id=?5 WHERE id=?6",
+                        params![
+                            s.name,
+                            s.content,
+                            s.send_enter as i64,
+                            s.auto_run as i64,
+                            s.host_id,
+                            id
+                        ],
                     )
                     .map_err(|e| e.to_string())?;
                 if n == 0 {
@@ -637,8 +680,14 @@ impl Store {
             }
             None => {
                 conn.execute(
-                    "INSERT INTO snippets (name, content) VALUES (?1, ?2)",
-                    params![s.name, s.content],
+                    "INSERT INTO snippets (name, content, send_enter, auto_run, host_id) VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![
+                        s.name,
+                        s.content,
+                        s.send_enter as i64,
+                        s.auto_run as i64,
+                        s.host_id
+                    ],
                 )
                 .map_err(|e| e.to_string())?;
                 Ok(conn.last_insert_rowid())
@@ -649,6 +698,59 @@ impl Store {
     pub fn snippet_delete(&self, id: i64) -> Result<(), String> {
         let conn = self.conn.lock().expect("数据库锁中毒");
         conn.execute("DELETE FROM snippets WHERE id=?1", [id])
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    // ---- 触发器 ----
+
+    pub fn trigger_list(&self) -> Result<Vec<Trigger>, String> {
+        let conn = self.conn.lock().expect("数据库锁中毒");
+        let mut stmt = conn
+            .prepare("SELECT id, host_id, pattern, payload FROM triggers ORDER BY id")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(Trigger {
+                    id: row.get(0)?,
+                    host_id: row.get(1).ok(),
+                    pattern: row.get(2)?,
+                    payload: row.get(3)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+    }
+
+    pub fn trigger_save(&self, id: Option<i64>, t: &Trigger) -> Result<i64, String> {
+        let conn = self.conn.lock().expect("数据库锁中毒");
+        match id {
+            Some(id) => {
+                let n = conn
+                    .execute(
+                        "UPDATE triggers SET host_id=?1, pattern=?2, payload=?3 WHERE id=?4",
+                        params![t.host_id, t.pattern, t.payload, id],
+                    )
+                    .map_err(|e| e.to_string())?;
+                if n == 0 {
+                    return Err(format!("触发器 {id} 不存在"));
+                }
+                Ok(id)
+            }
+            None => {
+                conn.execute(
+                    "INSERT INTO triggers (host_id, pattern, payload) VALUES (?1, ?2, ?3)",
+                    params![t.host_id, t.pattern, t.payload],
+                )
+                .map_err(|e| e.to_string())?;
+                Ok(conn.last_insert_rowid())
+            }
+        }
+    }
+
+    pub fn trigger_delete(&self, id: i64) -> Result<(), String> {
+        let conn = self.conn.lock().expect("数据库锁中毒");
+        conn.execute("DELETE FROM triggers WHERE id=?1", [id])
             .map_err(|e| e.to_string())?;
         Ok(())
     }
