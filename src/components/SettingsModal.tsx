@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import SidePanel from "./SidePanel";
+import KeysSection from "./KeysSection";
 import { applyTheme, THEMES } from "../theme";
 import {
   aiConfigGet,

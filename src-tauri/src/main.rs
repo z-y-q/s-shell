@@ -47,6 +47,124 @@ fn host_list(store: State<Store>) -> Result<Vec<store::Host>, String> {
     store.list()
 }
 
+fn keys_dir() -> Result<std::path::PathBuf, String> {
+    let mut dir = dirs::home_dir().ok_or("无法定位主目录")?;
+    dir.push(".ssh");
+    dir.push("s-shell-keys");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("创建密钥目录失败：{e}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
+    }
+    Ok(dir)
+}
+
+#[tauri::command]
+fn key_list() -> Result<Vec<serde_json::Value>, String> {
+    let dir = keys_dir()?;
+    let mut rows = Vec::new();
+    for entry in std::fs::read_dir(&dir).map_err(|e| format!("读取密钥目录失败：{e}"))? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        if path.extension().is_some() || path.extension().map(|e| e == "pub").unwrap_or(false) {
+            continue;
+        }
+        let pub_path = path.with_extension("pub");
+        if !pub_path.exists() {
+            continue;
+        }
+        let name = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+        let fingerprint = std::process::Command::new("ssh-keygen")
+            .args(["-lf", &path.to_string_lossy()])
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .and_then(|out| out.split_whitespace().nth(1).map(|s| s.to_string()))
+            .unwrap_or_default();
+        let created = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .map(|t| {
+                let secs = t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+                chrono_like_stamp_from_secs(secs)
+            })
+            .unwrap_or_default();
+        rows.push(serde_json::json!({
+            "name": name,
+            "path": path.to_string_lossy(),
+            "publicPath": pub_path.to_string_lossy(),
+            "fingerprint": fingerprint,
+            "createdAt": created
+        }));
+    }
+    rows.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
+    Ok(rows)
+}
+
+fn chrono_like_stamp_from_secs(secs: u64) -> String {
+    let days = secs / 86400;
+    let rem = secs % 86400;
+    let (h, m, s) = (rem / 3600, (rem % 3600) / 60, rem % 60);
+    let z = days as i64 + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = doe / 365;
+    let doy = doe % 365;
+    let mp = (doy + 5) * 5 - 3;
+    let month = mp / 153;
+    let day = (doy - (153 * mp + 2) / 5) + 1;
+    let year = era * 400 + yoe + (month <= 1) as i64;
+    format!("{year:04}{month:02}{day:02}-{h:02}{m:02}{s:02}")
+}
+
+#[tauri::command]
+fn key_generate(name: String) -> Result<serde_json::Value, String> {
+    let safe = name.trim().replace(['/', '\\', ':', ' '], "_");
+    if safe.is_empty() {
+        return Err("密钥名称不能为空".into());
+    }
+    let dir = keys_dir()?;
+    let path = dir.join(&safe);
+    if path.exists() {
+        return Err(format!("密钥 {safe} 已存在"));
+    }
+    let output = std::process::Command::new("ssh-keygen")
+        .args(["-t", "ed25519", "-f", &path.to_string_lossy(), "-N", "", "-q"])
+        .output()
+        .map_err(|e| format!("ssh-keygen 不可用：{e}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "生成失败：{}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    let public = std::fs::read_to_string(path.with_extension("pub")).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "path": path.to_string_lossy(),
+        "publicKey": public.trim(),
+        "name": safe
+    }))
+}
+
+#[tauri::command]
+async fn key_deploy(
+    store: State<'_, Store>,
+    host_id: i64,
+    key_path: String,
+) -> Result<String, String> {
+    let host = store.get(host_id)?.ok_or("主机不存在")?;
+    let pub_key = std::fs::read_to_string(format!("{key_path}.pub"))
+        .map_err(|e| format!("读取公钥失败：{e}"))?
+        .trim()
+        .to_string();
+    let command = format!(
+        "mkdir -p ~/.ssh && chmod 700 ~/.ssh && touch ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && grep -qxF '{pub_key}' ~/.ssh/authorized_keys || echo '{pub_key}' >> ~/.ssh/authorized_keys"
+    );
+    ssh::session::exec_command(store.inner(), &host, &command, Duration::from_secs(30)).await
+}
+
 #[tauri::command]
 fn host_save(store: State<Store>, id: Option<i64>, host: store::Host) -> Result<i64, String> {
     store.save(id, &host)
@@ -861,6 +979,9 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             host_list,
+            key_list,
+            key_generate,
+            key_deploy,
             host_save,
             host_delete,
             vault_set,

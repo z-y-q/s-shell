@@ -229,6 +229,30 @@ export function setWindowTheme(dark: boolean): Promise<void> {
   return invoke("set_window_theme", { dark });
 }
 
+export interface KeyInfo {
+  name: string;
+  path: string;
+  publicPath: string;
+  fingerprint: string;
+  createdAt: string;
+}
+
+export function keyList(): Promise<KeyInfo[]> {
+  return invoke("key_list");
+}
+
+export function keyGenerate(name: string): Promise<{ name: string; path: string; publicKey: string }> {
+  return invoke("key_generate", { name });
+}
+
+export function keyDeploy(hostId: number, keyPath: string): Promise<string> {
+  return invoke("key_deploy", { hostId, keyPath });
+}
+
+export function hostList(): Promise<Host[]> {
+  return invoke("host_list");
+}
+
 export function sessionLogStart(sessionId: number): Promise<string> {
   return invoke("session_log_start", { sessionId });
 }
