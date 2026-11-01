@@ -27,6 +27,7 @@ export interface Host {
   proxyCommand: string | null;
   compress: boolean;
   updatedAt: string;
+  groupName: string;
 }
 
 export type HostInput = Omit<Host, "id" | "updatedAt">;

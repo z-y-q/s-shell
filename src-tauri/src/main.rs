@@ -642,6 +642,7 @@ fn import_hosts(store: State<Store>, kind: String, path: String) -> Result<usize
         let host = store::Host {
             id: 0,
             name: item.name.clone(),
+            group_name: String::new(),
             host: item.host.clone(),
             port: item.port,
             username: item.username.clone(),

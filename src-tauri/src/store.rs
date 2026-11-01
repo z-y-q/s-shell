@@ -35,6 +35,8 @@ pub struct Host {
     pub compress: bool,
     #[serde(default)]
     pub updated_at: String,
+    #[serde(default)]
+    pub group_name: String,
 }
 
 fn default_proxy_kind() -> String {
@@ -113,7 +115,7 @@ pub struct Snippet {
 }
 
 const HOST_COLS: &str =
-    "id, name, host, port, username, auth_method, key_path, encoding, compat_mode, tmux_policy, jump_host_id, shell_integration, cert_path, proxy_kind, proxy_host, proxy_port, proxy_command, compress, updated_at";
+    "id, name, host, port, username, auth_method, key_path, encoding, compat_mode, tmux_policy, jump_host_id, shell_integration, cert_path, proxy_kind, proxy_host, proxy_port, proxy_command, compress, updated_at, group_name";
 
 fn row_to_host(row: &rusqlite::Row) -> rusqlite::Result<Host> {
     Ok(Host {
@@ -136,6 +138,7 @@ fn row_to_host(row: &rusqlite::Row) -> rusqlite::Result<Host> {
         proxy_command: row.get(16)?,
         compress: row.get::<_, Option<i64>>(17)?.unwrap_or(0) != 0,
         updated_at: row.get::<_, Option<String>>(18)?.unwrap_or_default(),
+        group_name: row.get::<_, Option<String>>(19)?.unwrap_or_default(),
     })
 }
 
@@ -234,6 +237,9 @@ impl Store {
         ensure_column(conn, "hosts", "proxy_command", "TEXT");
         ensure_column(conn, "hosts", "compress", "INTEGER");
         ensure_column(conn, "hosts", "updated_at", "TEXT");
+        ensure_column(conn, "hosts", "group_name", "TEXT");
+        conn.execute("UPDATE hosts SET group_name='' WHERE group_name IS NULL", [])
+            .expect("回填 hosts.group_name 默认值失败");
         // ALTER 加列后旧行为 NULL：回填默认值，读取层也做了空值容忍（双保险）
         conn.execute(
             "UPDATE hosts SET shell_integration=0 WHERE shell_integration IS NULL",
@@ -299,7 +305,7 @@ impl Store {
                         "UPDATE hosts SET name=?1, host=?2, port=?3, username=?4, auth_method=?5, \
                          key_path=?6, encoding=?7, compat_mode=?8, tmux_policy=?9, jump_host_id=?10, \
                          shell_integration=?11, cert_path=?12, proxy_kind=?13, proxy_host=?14, \
-                         proxy_port=?15, proxy_command=?16, compress=?17, updated_at=datetime('now') WHERE id=?18",
+                         proxy_port=?15, proxy_command=?16, compress=?17, group_name=?18, updated_at=datetime('now') WHERE id=?19",
                         params![
                             h.name,
                             h.host,
@@ -318,6 +324,7 @@ impl Store {
                             h.proxy_port,
                             h.proxy_command,
                             h.compress,
+                            h.group_name,
                             id
                         ],
                     )
@@ -331,8 +338,8 @@ impl Store {
                 conn.execute(
                     "INSERT INTO hosts (name, host, port, username, auth_method, key_path, \
                      encoding, compat_mode, tmux_policy, jump_host_id, shell_integration, cert_path, \
-                     proxy_kind, proxy_host, proxy_port, proxy_command, compress, updated_at) \
-                     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,datetime('now'))",
+                     proxy_kind, proxy_host, proxy_port, proxy_command, compress, group_name, updated_at) \
+                     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,datetime('now'))",
                     params![
                         h.name,
                         h.host,
@@ -350,7 +357,8 @@ impl Store {
                         h.proxy_host,
                         h.proxy_port,
                         h.proxy_command,
-                        h.compress
+                        h.compress,
+                        h.group_name
                     ],
                 )
                 .map_err(|e| e.to_string())?;

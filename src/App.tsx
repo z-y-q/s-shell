@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { Channel, invoke } from "@tauri-apps/api/core";
 import TerminalView from "./terminal/TerminalView";
@@ -58,8 +58,16 @@ export default function App() {
   const [editingHost, setEditingHost] = useState<Host | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const filteredHosts = hosts.filter((h) =>
-    (h.name + h.host + h.username).toLowerCase().includes(searchTerm.toLowerCase()),
+    (h.name + h.host + h.username + (h.groupName ?? "")).toLowerCase().includes(searchTerm.toLowerCase()),
   );
+  const hostGroups = useMemo(() => {
+    const map = new Map<string, Host[]>();
+    for (const h of filteredHosts) {
+      const key = h.groupName || "";
+      map.set(key, [...(map.get(key) ?? []), h]);
+    }
+    return [...map.entries()].sort((a, b) => (a[0] === "" ? 1 : b[0] === "" ? -1 : a[0].localeCompare(b[0])));
+  }, [filteredHosts]);
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [focusedPane, setFocusedPane] = useState<string | null>(null);
@@ -471,8 +479,15 @@ export default function App() {
             {filteredHosts.length === 0 && (
               <p className="text-sm text-[var(--faint)]">没有匹配的主机，点右上角「新建主机」添加。</p>
             )}
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {filteredHosts.map((host) => {
+            {hostGroups.map(([group, list]) => (
+              <section key={group || "__ungrouped"} className="mb-6">
+                {group && (
+                  <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--dim)]">
+                    {group}（{list.length}）
+                  </h2>
+                )}
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {list.map((host) => {
                 const hue = hostHue(host.name);
                 return (
                   <div
@@ -530,7 +545,9 @@ export default function App() {
                   </div>
                 );
               })}
-            </div>
+                </div>
+              </section>
+            ))}
           </div>
         )}
 

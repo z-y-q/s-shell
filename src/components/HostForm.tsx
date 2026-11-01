@@ -21,6 +21,7 @@ interface Props {
 export default function HostForm({ editing, onClose, onSaved }: Props) {
   const { hosts } = useHosts();
   const [name, setName] = useState(editing?.name ?? "");
+  const [groupName, setGroupName] = useState(editing?.groupName ?? "");
   const [host, setHost] = useState(editing?.host ?? "");
   const [port, setPort] = useState(String(editing?.port ?? 22));
   const [username, setUsername] = useState(editing?.username ?? "root");
@@ -65,6 +66,7 @@ export default function HostForm({ editing, onClose, onSaved }: Props) {
       name: name.trim(),
       host: host.trim(),
       port: portNumber,
+      groupName: groupName.trim(),
       username: username.trim(),
       authMethod,
       keyPath: authMethod === "password" || authMethod === "agent" ? null : keyPath.trim(),
@@ -139,6 +141,24 @@ export default function HostForm({ editing, onClose, onSaved }: Props) {
         <div className="mb-3">
           <label className={label}>名称</label>
           <input className={input} value={name} onChange={(e) => setName(e.target.value)} placeholder="生产-Web-01" />
+        </div>
+        <div className="mb-3">
+          <label className={label}>分组（可选，用于主机页归类）</label>
+          <input
+            className={input}
+            list="sshell-groups"
+            value={groupName}
+            onChange={(e) => setGroupName(e.target.value)}
+            placeholder="例如：生产环境"
+          />
+          <datalist id="sshell-groups">
+            {hosts
+              .map((h) => h.groupName)
+              .filter((g, i, arr) => g && arr.indexOf(g) === i)
+              .map((g) => (
+                <option key={g} value={g} />
+              ))}
+          </datalist>
         </div>
         <div className="mb-3 flex gap-3">
           <div className="flex-1">

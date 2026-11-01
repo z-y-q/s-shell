@@ -1422,6 +1422,7 @@ mod tests {
         Host {
             id: 0,
             name: name.into(),
+            group_name: String::new(),
             host: "10.0.0.1".into(),
             port: 22,
             username: "ops".into(),
