@@ -71,10 +71,11 @@ export default function TunnelCenter() {
       setError(`本机端口 ${listenPort} 已被占用`);
       return;
     }
-    const targetHost = form.kind === "local" ? form.targetHost || "127.0.0.1" : "";
-    const targetPort = form.kind === "local" ? Number(form.targetPort) || 0 : 0;
-    if (form.kind === "local" && !targetPort) {
-      setError("本地转发需要填写目标端口");
+    const targetHost =
+      form.kind === "dynamic" ? "" : form.targetHost.trim() || "127.0.0.1";
+    const targetPort = form.kind === "dynamic" ? 0 : Number(form.targetPort) || 0;
+    if (form.kind !== "dynamic" && !targetPort) {
+      setError("需要填写目标端口");
       return;
     }
     void forwardSave(
@@ -93,7 +94,8 @@ export default function TunnelCenter() {
   const onPortChange = (value: string) => {
     setForm({ ...form, listenPort: value });
     const port = Number(value);
-    if (Number.isInteger(port) && port > 0 && port < 65536) {
+    // 远端转发的监听发生在服务器上，本机探测没有意义
+    if (form.kind !== "remote" && Number.isInteger(port) && port > 0 && port < 65536) {
       void checkPortFree(port).then(setPortFree);
     } else {
       setPortFree(null);
@@ -148,15 +150,20 @@ export default function TunnelCenter() {
               onChange={(e) => onPortChange(e.target.value)}
             />
             {portFree === false && (
-              <p className="mt-0.5 text-xs text-red-500">端口已被占用</p>
+              <p className="mt-0.5 text-xs text-red-500">本机端口已被占用</p>
             )}
-            {portFree === true && <p className="mt-0.5 text-xs text-[var(--ok)]">端口可用</p>}
+            {portFree === true && (
+              <p className="mt-0.5 text-xs text-[var(--ok)]">本机端口可用</p>
+            )}
+            {form.kind === "remote" && (
+              <p className="mt-0.5 text-xs text-[var(--dim)]">远端端口占用以服务器为准</p>
+            )}
           </div>
-          {form.kind === "local" && (
+          {form.kind !== "dynamic" && (
             <>
               <input
                 className="sinput w-36"
-                placeholder="目标主机"
+                placeholder={form.kind === "remote" ? "目标主机（本机视角）" : "目标主机"}
                 value={form.targetHost}
                 onChange={(e) => setForm({ ...form, targetHost: e.target.value })}
               />
@@ -179,8 +186,13 @@ export default function TunnelCenter() {
         {selectedHost && form.kind !== "dynamic" && (
           <p className="mt-2 text-xs leading-4 text-[var(--dim)]">
             {form.kind === "local"
-              ? `连接 ${selectedHost.name} 后，本机 :${form.listenPort || "…"} 的流量经服务器转发到 ${form.targetHost}:${form.targetPort || "…"}`
-              : `服务器上的 :${form.listenPort || "…"} 会反向映射回本机`}
+              ? `连接 ${selectedHost.name} 后，本机 :${form.listenPort || "…"} 的流量经服务器转发到 ${form.targetHost || "127.0.0.1"}:${form.targetPort || "…"}（目标地址按服务器视角解析）`
+              : `连接 ${selectedHost.name} 后，服务器上的 :${form.listenPort || "…"} 收到连接，会转回到本机可访问的 ${form.targetHost || "127.0.0.1"}:${form.targetPort || "…"}（目标地址按本机视角解析）`}
+          </p>
+        )}
+        {form.kind === "dynamic" && selectedHost && (
+          <p className="mt-2 text-xs leading-4 text-[var(--dim)]">
+            连接 {selectedHost.name} 后，本机 :{form.listenPort || "…"} 成为 SOCKS5 代理，流量全部经该服务器出站
           </p>
         )}
       </div>
